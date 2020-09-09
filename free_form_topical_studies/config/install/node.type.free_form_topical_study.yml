@@ -1,0 +1,13 @@
+langcode: en
+status: true
+dependencies:
+    enforced:
+        module:
+            - free_form_topical_studies
+name: 'Free Form Topical Studies'
+type: 'free_form_topical_study'
+description: 'Suggestions, ideas, and resources related to a particular topic'
+help: ''
+new_revision: true
+preview_mode: 1
+display_submitted: false

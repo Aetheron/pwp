@@ -1,0 +1,198 @@
+<?php
+
+use Drupal\pwp_common\Common\Common;
+use Illuminate\Database\Capsule\Manager as IDB;
+
+define('URL_REGEX', '/{{(https?:\/\/)?(www\.)?[[:alnum:]]+\.(org|com|net)(\.[[:alnum:]]{2})?\/[[:alnum:]\-\+\&\@\#\/\%\=\~\_\(\)]+?}}/');
+
+/**
+ * @brief
+ *  Implements hook_preprocess_node(). For free_form_topical_studies nodes,
+ *  parses any urls found in the html and converts them to pwp resource links
+ */
+function free_form_topical_studies_preprocess_node(&$vars)
+{
+    if ($vars['node']->getType() == 'free_form_topical_study') {
+        $node_body_raw = $vars['elements']['body'][0]['#text'];
+        $vars['content']['body'][0]['#text'] =
+            free_form_topical_studies_process_body_field($node_body_raw);
+
+        $vars['#attached']['library'][] = 'free_form_topical_studies/node';
+    }
+}
+
+function free_form_topical_studies_load($title)
+{
+    static $cache = [];
+    $title = strtr($title, array("'" => '', '-' => ' '));
+
+    if (!isset($cache[$title])) {
+        $query = Drupal::entityQuery('node');
+        $result = $query
+            ->condition('type', 'free_form_topical_study')
+            ->condition('title', "$title", 'like')
+            ->execute();
+
+        $cache[$title] = $result ?? [];
+    }
+
+    return $cache[$title];
+}
+
+/**
+ * Implement hook_prepend_search_results()
+ */
+function free_form_topical_studies_prepend_search_results($data)
+{
+    $result = free_form_topical_studies_load($data['query']);
+    if ($result) {
+        $node =  \Drupal\node\Entity\Node::load(reset($result));
+        $body = strip_tags($node->get('body')->getValue()[0]['value']);
+        $content = Common::pwp_common_limit_number_of_words($body, 50);
+
+        return [
+            '#theme' => 'term_treatment_result',
+            '#title' => $node->get('title')->getValue()[0]['value'],
+            '#url' => '/topic/' . $node->get('title')->getValue()[0]['value'],
+            '#descriptor' => $content,
+        ];
+    }
+}
+
+/**
+ * @brief
+ *  Strips off the protocol, leading double slashes, www., and any trailing slashes from a URL.
+ *  This makes it easier to look up resources by URLs that are provided by users, which might, for
+ *  example, use HTTP instead of HTTPS, omit 'www.', etc., -- all of which would prevent exact
+ *  string matching against the resource.external_url field.
+ *
+ * @param string $url
+ *
+ * @retval string
+ */
+function free_form_topical_studies_normalize_url($url)
+{
+    return preg_replace('#(^(https?://)?(www\.)?|/+$)#i', '', $url);
+}
+
+/**
+ * @brief
+ *  Given the raw value of the topical study html field, parses out urls in the
+ *  field and removes delimiters
+ *
+ * @param string $raw_value
+ *
+ * @retval array
+ */
+function free_form_topical_studies_parse_body_field($raw_value)
+{
+    $parsed = [];
+    $urls = [];
+    preg_match_all(URL_REGEX, $raw_value, $urls);
+
+    foreach ($urls[0] as $url) {
+        // Trim off whitespace and the {{}} character wrapper around urls
+        $url = trim(ltrim(rtrim($url, '}'), '{'));
+        $parsed[] = free_form_topical_studies_normalize_url($url);
+    }
+
+    return $parsed;
+}
+
+/**
+ * @brief
+ *  Given the data parsed by resource_guides_parse_prep_field(), verifies that
+ *  each url matches a PWP resource
+ *
+ * @param array $urls An array of potential resource urls
+ *
+ * @retval array
+ *  An array where each element contains either a db object of resource data
+ *  or an array describing the problem with the url and the problematic url
+ */
+function free_form_topical_studies_verify_resources(array $urls)
+{
+    $resources = [];
+    foreach ($urls as $url) {
+        // $url = resource_guides_normalize_url($url);
+        $resource = IDB::table('resource')
+            ->where('external_url', 'LIKE', "%$url%")
+            ->orderBy(IDB::raw('deleted_at IS NULL'), 'DESC')
+            ->orderBy('published', 'DESC')
+            ->orderBy('available', 'DESC')
+            ->first();
+        // Add the resource (or null) to the array of resources. We want invalid
+        // resource positions to be passed on so that replacement doesn't become
+        // misaligned
+        if ($resource) {
+            $resources[] = $resource;
+        } else {
+            // We didn't find a corresponding resource in the DB.
+            $resources[] = ['problem' => 'not in the database', 'url' => $url];
+        }
+    }
+
+    return $resources;
+}
+
+/**
+ * @brief
+ *  Renders the free form topical study content by replacing valid resource urls
+ *  and optionally showing errors and warnings for invalid urls
+ *
+ * @param array $resources An array of resource db objects or arrays of error info
+ * @param string $text The node's raw full text
+ *
+ * @retval string
+ */
+function free_form_topical_studies_render($resources, $text)
+{
+    foreach ($resources as $value) {
+        $replacement = '';
+        if (is_object($value)) {
+            $options = [
+                'attributes' => [
+                    'data-href'    => pwp_common_generate_tracking_url($value->id),
+                    'target'       => '_blank',
+                    'rel'          => 'nofollow',
+                    'data-gae-cat' => 'search',
+                    'data-gae-act' => 'click result',
+                    'data-gae-lbl' => 'free_form_topical_study',
+                ]
+            ];
+            if (
+                ($value->available == 'N' || $value->published == 'N')
+                && user_access('view resource guide errors')
+            ) {
+                $options['attributes']['class'] = ['ffts-warning'];
+                $options['attributes']['title'] = 'This resource is unavailable or unpublished';
+            }
+
+            $replacement = l($value->title, $value->external_url, $options);
+        } elseif (user_access('view resource guide errors')) {
+            // We have a resource error and we should show error coloring
+            $replacement = '<span class="ffts-error" title="This url does not belong to a PWP resource">'
+                . $value['url'] . '</span>';
+        } else {
+            // We have a resource error
+            $replacement = $value['url'];
+        }
+        $text = preg_replace(URL_REGEX, $replacement, $text, 1);
+    }
+    return $text;
+}
+
+/**
+ * @brief
+ *  Process and render a free form topical study node's content
+ *
+ * @param string $body_raw The node's raw body text
+ *
+ * @retval string
+ */
+function free_form_topical_studies_process_body_field($body_raw)
+{
+    $parsed = free_form_topical_studies_parse_body_field($body_raw);
+    $resources_info = free_form_topical_studies_verify_resources($parsed);
+    return free_form_topical_studies_render($resources_info, $body_raw);
+}

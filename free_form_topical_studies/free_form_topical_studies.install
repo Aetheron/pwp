@@ -1,0 +1,16 @@
+<?php
+
+/**
+ * @brief
+ *	Implements hook_uninstall()
+ *
+ * Removes all nodes of the 'free_form_topical_study' type
+ */
+function free_form_topical_studies_uninstall()
+{
+		$query = Drupal::entityQuery('node');
+		$entities = $query->condition('type', 'free_form_topical_study')->execute();
+		$manager = Drupal::entityTypeManager()->getStorage('node');
+		$ffts_entities = $manager->loadMultiple($entities);
+		$manager->delete($ffts_entities);
+}

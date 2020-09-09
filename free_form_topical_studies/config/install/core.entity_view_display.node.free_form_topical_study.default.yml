@@ -1,0 +1,21 @@
+langcode: en
+status: true
+dependencies:
+    config:
+        - field.field.node.free_form_topical_study.body
+        - node.type.free_form_topical_study
+    module:
+        - text
+        - user
+id: node.free_form_topical_study.default
+targetEntityType: node
+bundle: free_form_topical_study
+mode: default
+content:
+    body:
+        label: hidden
+        type: text_default
+        weight: 0
+        settings: {}
+        third_party_settings: {}
+hidden: {}

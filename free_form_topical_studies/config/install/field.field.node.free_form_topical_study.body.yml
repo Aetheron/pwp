@@ -1,0 +1,21 @@
+langcode: en
+status: true
+dependencies:
+    config:
+        - field.storage.node.body
+        - node.type.free_form_topical_study
+    module:
+        - text
+id: node.free_form_topical_study.body
+field_name: body
+entity_type: node
+bundle: free_form_topical_study
+label: Body
+description: ''
+required: true
+translatable: false
+default_value: {}
+default_value_callback: ''
+settings:
+    display_summary: true
+field_type: text_with_summary

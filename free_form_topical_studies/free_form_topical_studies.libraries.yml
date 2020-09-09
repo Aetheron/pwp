@@ -1,0 +1,5 @@
+node:
+    version: 1.x
+    css:
+        theme:
+            less/free_form_topical_studies.css.less: {}

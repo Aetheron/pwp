@@ -1,0 +1,7 @@
+name: Free Form Topical Studies
+description: Provides a more open, customizable method of creating Topical Studies
+package: Preaching and Worship Portal
+type: module
+core: 8.x
+dependencies:
+    - pwp_search
